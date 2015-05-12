@@ -1,0 +1,3 @@
+[submodule "error-reporter"]
+	path = error-reporter
+	url = https://github.com/apisnetworks/error-reporter
