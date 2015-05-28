@@ -6,7 +6,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev$ $Date$
+	 * @version $Rev: 1786 $ $Date: 2015-05-28 00:15:38 -0400 (Thu, 28 May 2015) $
 	 */
 	class Util_Process_Chroot extends Util_Process
 	{
@@ -28,7 +28,7 @@
 				fatal("chroot processes must run as root");
 			}
 			$this->_root = $root;
-			if ($user || $sgroup && version_compare(platform_version(), '5', '<')) {
+			if (($user || $sgroup) && version_compare(platform_version(), 5, '<')) {
 				return error("platform version does not support userspec");
 			}
 			if ($user) {

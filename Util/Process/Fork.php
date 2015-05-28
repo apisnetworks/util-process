@@ -6,7 +6,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 1760 $ $Date: 2015-05-12 13:28:47 -0400 (Tue, 12 May 2015) $
+	 * @version $Rev: 1786 $ $Date: 2015-05-28 00:15:38 -0400 (Thu, 28 May 2015) $
 	 */
 	class Util_Process_Fork extends Util_Process
 	{
