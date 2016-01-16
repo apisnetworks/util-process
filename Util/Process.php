@@ -8,7 +8,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 1760 $ $Date: 2015-05-12 13:28:47 -0400 (Tue, 12 May 2015) $
+	 * @version $Rev: 1947 $ $Date: 2016-01-16 13:30:05 -0500 (Sat, 16 Jan 2016) $
 	 */
 	class Util_Process {
 		/**
@@ -44,6 +44,11 @@
 		private $_env = array(
 			'PATH' => '/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin'
 		);
+
+		// new priority level
+		private $_priority;
+		// revert after exec
+		private $_oldPriority;
 
 		/**
 		 * @var array process options
@@ -165,11 +170,39 @@
 			$this->prog_name = basename(substr($cmd, 0, strpos($cmd, " ")));
 
 			// process setup
+			$prio = $this->getPriority();
+			if ($prio && !pcntl_setpriority($prio)) {
+				warn("failed to set priority %d", $prio);
+			}
+			if (!$this->getOption('run')) {
+				return $this;
+			}
+
+			return $this->_run();
+
+		}
+
+		/**
+		 * Force a delayed start
+		 *
+		 * Used in conjunction with setOption("run", false)
+		 *
+		 * @return bool|Util_Process
+		 */
+		public function forceRun() {
+			if ($this->getOption('run')) {
+				return true;
+			}
+
+			return $this->_run();
+		}
+
+		private function _run() {
 			$pid = proc_open($this->cmd,
-				$this->descriptors,
-				$this->pipes,
-				null,
-				$this->_env
+					$this->descriptors,
+					$this->pipes,
+					null,
+					$this->_env
 			);
 			if (!is_resource($pid)) {
 				return error("`%s': unable to open process", $this->prog_name);
@@ -269,6 +302,23 @@
 			return $this->_env;
 		}
 
+		public function setPriority($prio) {
+			if (!function_exists('pcntl_setpriority')) {
+				fatal('pcntl extension not loaded');
+			}
+			if ($prio < -20 || $prio > 19) {
+				return error("invalid priority specified `%d'", $prio);
+			}
+			$this->_priority = intval($prio);
+			// reset after exec
+			$this->_oldPriority = pcntl_getpriority();
+			return $this;
+		}
+
+		public function getPriority()
+		{
+			return $this->_priority;
+		}
 		/**
 		 * Util_Process output into conventional call_proc() output
 		 *
@@ -541,6 +591,12 @@
 		    if ($peer)
 				$peer->close();
 			$exit = proc_close($this->proc_instance);
+			// reset priority if adjusted
+			if (null !== ($prio = $this->getPriority())) {
+				$newprio = $this->_oldPriority;
+				pcntl_setpriority($newprio);
+				unset($this->_priority);
+			}
 			$this->setExit($exit);
 			$this->callback('close', $exit);
 			return $this;
@@ -643,7 +699,7 @@
 				error("pipe $pipe not closed yet!");
 			}
 		}
-        
+
         /**
          *  named arguments
          *  first el in $args will be hash of arguments
@@ -657,7 +713,7 @@
                $argtable[$k] = $n;
                $n++;
            }
-           
+
            $cmd = $this->cmd;
 
            $newstr = array();
@@ -667,13 +723,13 @@
            }
            while (false !== $pos) {
                $len = $pos-$start;
-               $newstr[] = substr($cmd, $start, $len);                    
+               $newstr[] = substr($cmd, $start, $len);
                $pos += 2 /* %( */;
                $n = strpos($cmd, ")", $pos);
-               if ($n === false) { 
-                   warn("malformed format var name"); 
+               if ($n === false) {
+                   warn("malformed format var name");
                    break;
-               }                    
+               }
                $symlen = $n - $pos;
                $sym = substr($cmd, $pos, $symlen);
                $pos += $symlen + 1 /* ) */;
@@ -692,7 +748,7 @@
            $this->cmd = vsprintf($cmd, $args[0]);
            return true;
         }
-        
+
 		protected function _setArgs($args) {
 			if (!isset($args[0])) return true;
 
@@ -701,7 +757,7 @@
             // cmd commands symbolic format parameters
             // arguments always presented as a hash
             $pos = strpos($cmd, "%(");
-            if ($pos !== false) {                           
+            if ($pos !== false) {
                 $this->_setArgsNamed($args, $pos);
                 $cnt = 1;
             } else {
@@ -730,8 +786,8 @@
                     $this->args = $fmt_args;
                     $args = array_slice($args, $cnt);
                 }
-                
-                $this->cmd = vsprintf($cmd, $fmt_args);                
+
+                $this->cmd = vsprintf($cmd, $fmt_args);
             } 
             // all args satisfied
             if (empty($args)) {

@@ -15,26 +15,32 @@
             if (!function_exists('pcntl_fork')) {
 	            fatal("can't fork! posix functions missing");
             }
+
+			$this->setOption('run', false);
+			$args = func_get_args();
+			call_user_func_array('parent::run', $args);
+			$cmd = $this->getCommand();
+			$parts = parent::decompose($cmd);
+			if ($parts['cmd'][0] !== "/") {
+				// pcntl_fork barfs if an absolute path isn't given
+				// path discovery is part of the shell
+				return error("command path must be absolute path");
+			}
+
 			$pid = pcntl_fork();
 
 			if ($pid == -1) {
 				fatal("fork failed!");
 			}
 			if ($pid) {
-				$status = null;
-				// hack until it is revisted...
+				pcntl_signal(SIGCHLD, SIG_IGN);
 				$ret = parent::format();
 				$ret['success'] = ($pid > 0);
 				$ret['return'] = $pid;
 				return $ret;
 			} else {
 				posix_setsid();
-				pcntl_signal(SIGCHLD, SIG_IGN);
-				$this->setOption('run', false);
-				$resp = parent::run($cmd, $args);
-				$cmd = $resp->getCommand();
-				$parts = parent::decompose($cmd);
-				pcntl_exec($parts['cmd'], $parts['args']);
+				pcntl_exec($parts['cmd'], $parts['args'], $this->getEnvironment());
 				exit();
 			}
 		}
