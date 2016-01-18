@@ -6,10 +6,14 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 1786 $ $Date: 2015-05-28 00:15:38 -0400 (Thu, 28 May 2015) $
+	 * @version $Rev: 1960 $ $Date: 2016-01-18 01:15:06 -0500 (Mon, 18 Jan 2016) $
 	 */
 	class Util_Process_Fork extends Util_Process
 	{
+		public function __destruct() {
+			pcntl_signal( SIGCHLD, SIG_DFL);
+		}
+
 		public function run($cmd, $args = null)
 		{
             if (!function_exists('pcntl_fork')) {
