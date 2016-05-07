@@ -6,7 +6,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 1786 $ $Date: 2015-05-28 00:15:38 -0400 (Thu, 28 May 2015) $
+	 * @version $Rev: 2194 $ $Date: 2016-05-05 13:06:57 -0400 (Thu, 05 May 2016) $
 	 */
 	class Util_Process_Sudo extends Util_Process
 	{
@@ -64,10 +64,10 @@
 
 			}
 
-			$cmd = sprintf('su -l %s@%s -c %s',
+			$cmd = sprintf('su -l -c %s %s@%s',
+				escapeshellarg("cd ~ && ".$cmd),
 				$opts['user'],
-				$opts['domain'],
-				escapeshellarg("cd ~ && ".$cmd));
+				$opts['domain']);
 			$args[0] = $cmd;
 			return call_user_func_array('parent::run',$args);
 		}

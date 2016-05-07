@@ -6,7 +6,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 1786 $ $Date: 2015-05-28 00:15:38 -0400 (Thu, 28 May 2015) $
+	 * @version $Rev: 2141 $ $Date: 2016-04-14 12:57:23 -0400 (Thu, 14 Apr 2016) $
 	 */
 	class Util_Process_Chroot extends Util_Process
 	{
@@ -91,7 +91,7 @@
 			$cmd = sprintf('chroot %s %s %s',
 				escapeshellarg($this->_root),
 				$xtraflags,
-				$cmd
+				escapeshellarg($cmd)
 			);
 			$args = func_get_args();
 			$args[0] = $cmd;
