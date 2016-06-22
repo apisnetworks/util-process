@@ -6,19 +6,23 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 1786 $ $Date: 2015-05-28 00:15:38 -0400 (Thu, 28 May 2015) $
+	 * @version $Rev: 2274 $ $Date: 2016-06-03 21:46:43 -0400 (Fri, 03 Jun 2016) $
 	 */
 	class Util_Process_Schedule extends Util_Process
 	{
-		
+		// atd spool dir
+		const SPOOL_DIR = '/var/spool/at';
+		const AT_CMD = 'at';
+
 		private $_time;
+		private $_id;
 		
 		/**
 		 * Schedule a process to be run at
 		 * a specific time
 		 */
 		
-		public function __construct($arg1, $arg2 = null, $arg3 = null) {
+		public function __construct($arg1 = 'now', $arg2 = null, $arg3 = null) {
 			if (!is_null($arg2)) {
 				// signature 1: $format, $time, DateTimeZone $tz = null
 				$this->__constructSig1($arg1, $arg2, $arg3);
@@ -60,23 +64,62 @@
 		private function _parse(DateTime $d) {
 			return $d->format("H:i m/d/Y");
 		}
-		
+
+		public function setID($id) {
+			if (!is_readable(self::SPOOL_DIR)) {
+				return warn("ID support unavailable: cannot access atd spool `%s', verify permissions?");
+			}
+			$this->setEnvironment('__APNSCP_ATD_ID', $id);
+			$this->_id = $id;
+		}
+
 		public function run($cmd, $args = null)
 		{
+			if ($this->_id && false !== ($procid = $this->idPending($this->_id))) {
+				return error("pending process `%s' already scheduled with id `%s'",
+					basename($procid),
+					$this->_id
+				);
+			}
 			$spec = $this->_parse($this->_time);
 			if (false === $spec) {
 				return error("unparseable timespec `%s'", $this->_time);
 			}
-			$safecmd = sprintf("echo %s | at %s 2> /dev/null", 
+			$safecmd = sprintf("echo %s | " . static::AT_CMD . "  %s 2> /dev/null",
 				escapeshellarg($cmd), 
 				$spec
 			);
 			$args = func_get_args();
 			$args[0] = $safecmd;
-            return call_user_func_array(array('Util_Process_Safe', 'exec'), $args);
+			$safe = new Util_Process_Safe();
+			$safe->setEnvironment($this->getEnvironment());
+			return call_user_func_array(array($safe, 'run'), $args);
 
 		}
-        
+
+		/**
+		 * Program already exists in atd queue with ID
+		 *
+		 * @param string $id
+		 * @return bool
+		 */
+		public function idPending($id) {
+			$spooldir = self::SPOOL_DIR;
+			// a* is at
+			// b* is batch
+			$files = glob($spooldir . '/[ab]*');
+			foreach ($files as $f) {
+				$contents = file_get_contents($f);
+				if (!preg_match('/^__APNSCP_ATD_ID=(.*?)(?:; export __APNSCP_ATD_ID)?$/m', $contents, $matches)) {
+					continue;
+				}
+				if ($matches[1] === $id) {
+					return $f;
+				}
+			}
+			return false;
+		}
+
         final public static function exec($cmd, $args = null, $exits = array(0), $opts = array()) {
             return error("cannot statically call exec() with Util_Proc_Schedule");
         }

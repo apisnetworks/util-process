@@ -6,7 +6,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 2194 $ $Date: 2016-05-05 13:06:57 -0400 (Thu, 05 May 2016) $
+	 * @version $Rev: 2284 $ $Date: 2016-06-04 15:43:30 -0400 (Sat, 04 Jun 2016) $
 	 */
 	class Util_Process_Sudo extends Util_Process
 	{
@@ -64,8 +64,13 @@
 
 			}
 
+			$umask = '';
+			if (null !== ($umask = $this->getOption('umask'))) {
+				$umask = 'umask ' . decoct($umask) . ' &&';
+			}
+
 			$cmd = sprintf('su -l -c %s %s@%s',
-				escapeshellarg("cd ~ && ".$cmd),
+				escapeshellarg($umask . "cd ~ && " . $cmd),
 				$opts['user'],
 				$opts['domain']);
 			$args[0] = $cmd;

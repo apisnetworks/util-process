@@ -8,7 +8,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 1950 $ $Date: 2016-01-16 13:52:12 -0500 (Sat, 16 Jan 2016) $
+	 * @version $Rev: 2275 $ $Date: 2016-06-04 02:17:44 -0400 (Sat, 04 Jun 2016) $
 	 */
 	class Util_Process {
 		/**
@@ -285,7 +285,6 @@
 			} else {
 				$this->_env[$name] = $val;
 			}
-
 			return $this;
 		}
 

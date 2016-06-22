@@ -6,19 +6,10 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 1786 $ $Date: 2015-05-28 00:15:38 -0400 (Thu, 28 May 2015) $
+	 * @version $Rev: 2274 $ $Date: 2016-06-03 21:46:43 -0400 (Fri, 03 Jun 2016) $
 	 */
-	class Util_Process_Batch extends Util_Process
+	class Util_Process_Batch extends Util_Process_Schedule
 	{
-		public function run($cmd, $args = null)
-		{
-			$safecmd = sprintf("echo %s | batch 2> /dev/null",
-				escapeshellarg($cmd)
-			);
-			$args = func_get_args();
-			$args[0] = $safecmd;
-			return call_user_func_array(array('Util_Process_Safe', 'exec'), $args);
-
-		}
+		const AT_CMD = 'batch';
 	}
 ?>
