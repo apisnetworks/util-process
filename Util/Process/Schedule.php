@@ -6,7 +6,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 2274 $ $Date: 2016-06-03 21:46:43 -0400 (Fri, 03 Jun 2016) $
+	 * @version $Rev: 2412 $ $Date: 2016-07-19 20:18:17 -0400 (Tue, 19 Jul 2016) $
 	 */
 	class Util_Process_Schedule extends Util_Process
 	{
@@ -86,7 +86,7 @@
 				return error("unparseable timespec `%s'", $this->_time);
 			}
 			$safecmd = sprintf("echo %s | " . static::AT_CMD . "  %s 2> /dev/null",
-				escapeshellarg($cmd), 
+				escapeshellcmd($cmd),
 				$spec
 			);
 			$args = func_get_args();
@@ -107,7 +107,8 @@
 			$spooldir = self::SPOOL_DIR;
 			// a* is at
 			// b* is batch
-			$files = glob($spooldir . '/[ab]*');
+			// =* is running
+			$files = glob($spooldir . '/[ab=]*');
 			foreach ($files as $f) {
 				$contents = file_get_contents($f);
 				if (!preg_match('/^__APNSCP_ATD_ID=(.*?)(?:; export __APNSCP_ATD_ID)?$/m', $contents, $matches)) {

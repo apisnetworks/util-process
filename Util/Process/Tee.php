@@ -1,4 +1,5 @@
 <?php
+
 	/**
 	 * Pipe command output to another file
 	 *
@@ -6,171 +7,223 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 1786 $ $Date: 2015-05-28 00:15:38 -0400 (Thu, 28 May 2015) $
+	 * @version $Rev: 2450 $ $Date: 2016-08-17 15:15:41 -0400 (Wed, 17 Aug 2016) $
 	 */
 	class Util_Process_Tee
 	{
 		/**
 		 * Tee file pointer
-		 * @var resource 
+		 *
+		 * @var resource
 		 */
-		static $fp;
+		private $fp;
 		/**
 		 * This is a persistent request that
 		 * will automatically resume a tee across
-		 * multiple class instances.  
-		 * 
+		 * multiple class instances.
+		 *
 		 ***** Remember to call _close() to release tee *****
+		 *
 		 * @var bool
 		 */
 		private $persist = false;
-		
-		/** 
+
+		/** @var  string tee output filename */
+		private $file;
+
+		/**
 		 * Process invoker instance
+		 *
 		 * @var Util_Process
 		 */
-		private  $proc;
-		/** 
+		private $proc;
+		/**
 		 * Instance created tee file
-		 * @var bool 
+		 *
+		 * @var bool
 		 */
 		private $owner = false;
 
-		function __destruct() {
-			if (IS_CLI)
-				return $this->_close();
-			$this->close();
-		}
-
-		private function __construct(Util_Process $proc) { $this->proc = $proc; }
-
-		/**
-		 * Get tee filename
-		 * @private
-		 * @return string
-		 */
-		private static function _get_file() {
-			return '/tmp/'.Auth::get_driver()->getID();
-		}
-
-		/**
-		 * Get lock filename
-		 * @private
-		 * @return string
-		 */
-		private static function _get_lock() {
-			return '/tmp/'.Auth::get_driver()->getID().'-lock';
-		}
-
-		/**
-		 * Log command output
-		 * 
-		 * @param Util_Process $proc command invoker
-		 * @return Util_Process_Tee
-		 */
-		public static function watch(Util_Process $proc)
+		public function __construct(array $options = array())
 		{
-			$tee = new Util_Process_Tee($proc);
-			// file is opened, resume
-			if (!is_resource(self::$fp))
-				$tee->init();
-			
-			$proc->addCallback(array($tee, 'rlog'));
-			return $tee;
+			if (isset($options['process'])) {
+				$this->setProcess($options['process']);
+			}
+			if (isset($options['tee'])) {
+				$this->setTeeFile($options['tee']);
+			} else if (isset($options['path'])) {
+				$this->setTeePath($options['path']);
+			}
+			if (isset($options['persist'])) {
+				$this->setPersistence($options['persist']);
+			}
+		}
+
+		public function setProcess(Util_Process $proc)
+		{
+			$this->proc = $proc;
+			if (function_exists('pcntl_signal')) {
+				$this->proc->setOption('timeout', 10);
+			}
+
+			$this->proc->addCallback(array($this, 'init'), 'exec.tee');
+			$this->proc->addCallback(array($this, 'rlog'), 'read.tee');
+			$this->proc->addCallback(array($this, 'deinit'), 'close.tee');
+
 		}
 
 		/**
-		 * Resume a tee in progress or setup a persistent request
-		 * 
-		 * @param Util_Process $proc
-		 * @return Util_Process_Tee
+		 * Use file for output
+		 *
+		 * @param $file
+		 * @return bool
 		 */
-		public static function auto(Util_Process $proc)
+		public function setTeeFile($file)
 		{
-			$tee = self::watch($proc);
-			$tee->setPersistence(true);
-			return $tee;
+			if (!file_exists($file)) {
+				touch($file);
+			}
+			$this->file = $file;
+			return true;
+		}
+
+		/**
+		 * Generate a discretionary tee file
+		 *
+		 * @param string $dir
+		 * @return bool|void
+		 */
+		public function setTeePath($dir = '')
+		{
+			if (!$dir) {
+				$dir = sys_get_temp_dir();
+			} else if (!is_dir($dir)) {
+				return error("path `%s' is not a directory", $dir);
+			}
+			$path = tempnam($dir, 'tee');
+			chmod($path, 0600);
+			if (posix_getuid() == 0 && defined('WS_UID')) {
+				/// apnscp
+				chown($path, constant('WS_UID'));
+			}
+			$this->setTeeFile($path);
+			return $path;
 		}
 
 		/**
 		 * Initialize tee file
-		 * 
-		 * @return bool mutex lock acquired 
+		 *
+		 * @return bool mutex lock acquired
 		 */
-		public function init() {
-			$flags = LOCK_EX|LOCK_NB;
-			$wb = true;
-			$mode = 'w';
-			touch($this->_get_file());
-			if (file_exists($this->_get_lock())) {
-				$mode = 'a';
+		public function init()
+		{
+			if (!$this->file) {
+				return error("no tee file set!");
 			}
-			$fp = fopen($this->_get_file(), $mode);
-			$i=0;
-			while (!flock($fp, $flags, $wb)) {
+			$persist = $this->persist;
+			$lock = $this->_get_lock();
+			if (!$persist && file_exists($lock)) {
+				fatal("lock `%s' present, is another tee running?", $lock);
+			}
+			$flags = LOCK_EX | LOCK_NB;
+			if (!file_exists($lock)) {
+				touch($lock);
+				$fp = fopen($lock, 'w');
+			} else {
+				$fp = fopen($lock, 'a');
+			}
+			$wb = false;
+			for ($i = 0; $i < 100 || $wb; $i++) {
+				flock($fp, $flags, $wb);
 				usleep(500);
-				$i++;
-				if ($i > 100) { warn("Gave up waiting!") ; break; fclose($fp); return false; }
 			}
-			if (IS_CLI) {
-				chown($this->_get_file(), 'nobody');
+			if ($wb) {
+				return error("unable to acquire lock on `%s'", $lock);
 			}
-			if (file_exists($this->_get_lock())) {
-				unlink($this->_get_lock());
+
+			$of = $this->file;
+			if (!$persist && file_exists($of)) {
+				unlink($of);
 			}
-			self::$fp = &$fp;
+			touch($of);
+			if (defined('IS_CLI') && constant('IS_CLI')) {
+				chown($of, constant('WS_UID'));
+			}
+			chmod($of, 0600);
+
+			$fp = fopen($of, $persist ? 'a' : 'w');
+			$this->fp = &$fp;
 			$this->owner = true;
 			// IE Fix - LF does not produce line-break
-			stream_filter_register('string.unix2dos','Util_Filter_Unix2dos');
+			stream_filter_register('string.unix2dos', 'Util_Filter_Unix2dos');
 			stream_filter_append($fp, 'string.unix2dos', STREAM_FILTER_WRITE);
 			return true;
 		}
 
 		/**
-		 * Call a command by using Util_Process::exec()
-		 * 
-		 * @see Util_Process::exec()
-		 * @return array
+		 * Persist tee between invocations
+		 *
+		 * @param bool $persist
 		 */
-		public function exec($cmd, $args = null, $exits = array(0), $opts = array()) {
-			//if (!is_resource(self::$fp)) { return false; }
-			if (!isset($this->proc)) {
-				return error("cannot exec with delegated obj (".__CLASS__."::auto())");
+		public function setPersistence($persist = true)
+		{
+			$this->persist = $persist;
+			if (!$persist) {
+				$this->deinit();
 			}
-			if (!is_resource(self::$fp)) return array('success' => false);
-			$resp = call_user_func_array(array($this->proc, 'run'), func_get_args());
-			return $resp;
+
+			DataStream::get()->setOption(apnscpObject::USE_TEE);
+			$this->proc->deleteCallback('close', 'tee');
+		}
+
+		public function deinit() {
+			DataStream::get()->clearOption(apnscpObject::USE_TEE);
+			$tee = $this->file;
+			$lock = self::_get_lock();
+			// tee must be removed by agent confirming IO
+			// has drained
+			if (file_exists($lock)) {
+				unlink($lock);
+			}
+			return true;
 		}
 
 		/**
 		 * Read tee file
-		 * 
+		 *
+		 * Do not run as root, no access rights are checked
+		 * Filter $file for untrusted users
+		 *
 		 * offset:  (int)    total bytes read
-		 * length:  (int)    bytes read this request 
-		 * data:    (string) 
-		 * eof:     (bool)   
-		 * 
+		 * length:  (int)    bytes read this request
+		 * data:    (string)
+		 * eof:     (bool)
+		 *
 		 * error:   (null)   compatibility with apnscp ajax invocation
 		 * success: (bool)   compatibility with apnscp ajax invocation
-		 * 
+		 *
 		 * @param int $offset last byte offset
 		 * @return array
 		 */
-		public static function read($offset)
+		public static function read($file, $offset = -1)
 		{
 			$tee_lock = self::_get_lock();
-			$tee = self::_get_file();
-
+			$tee = $file; 
+			// @todo verify $file
+			if (!$tee) {
+				return array();
+			}
 			// new request
-			$block = true; $op = LOCK_EX|LOCK_NB;
+			$block = true;
+			$op = LOCK_EX | LOCK_NB;
 			if ($offset == -1) {
 				$offset = 0;
 				if (file_exists($tee_lock)) {
-					 if (filemtime($tee_lock) < $_SERVER['REQUEST_TIME']) {
-						unlink($tee_lock); 
+					if (filemtime($tee_lock) < $_SERVER['REQUEST_TIME']) {
+						unlink($tee_lock);
 						unlink($tee);
-					 }
-				} else if (file_exists($tee)) {
+					}
+				} else if (file_exists($tee_lock)) {
 					$fp = fopen($tee, 'r');
 					$unlocked = flock($fp, $op, $block);
 					// stale tee lock
@@ -191,99 +244,127 @@
 				return '';
 			}
 
-			$fp = fopen($tee,'r');
+			$fp = fopen($tee, 'r');
 			stream_set_blocking($fp, 1);
 			$stream = stream_get_contents($fp, -1, $offset);
 			$len = strlen($stream);
 
-			$complete =  !file_exists($tee_lock)  && flock($fp, $op, $block) && feof($fp);
+			$complete = !file_exists($tee_lock) && flock($fp, $op, $block) && feof($fp);
 			fclose($fp);
 			$offset += $len;
-			if ($complete) unlink($tee);
+			if ($complete) {
+				unlink($tee);
+			}
 			return array(
-				'offset' => $offset,
-				'data'   => $stream,
-				'eof'    => $complete,
-				'error'  => '',
-				'success'=> true,
-				'length' => $len
+				'offset'  => $offset,
+				'data'    => $stream,
+				'eof'     => $complete,
+				'error'   => '',
+				'success' => true,
+				'length'  => $len
 			);
 		}
 
-		/**
-		 * Persist tee between invocations
-		 * 
-		 * @param bool $persist
-		 */
-		public function setPersistence($persist = true)
-		{
-			$this->persist = $persist;
-
-			if ($this->persist) {
-				DataStream::get()->setOption(apnscpObject::USE_TEE);
-				touch(self::_get_lock());
-				if (IS_CLI) chown(self::_get_lock(), 'nobody');
-
-			} else if (file_exists(self::_get_lock())) {
-				DataStream::get()->clearOption(apnscpObject::USE_TEE);
-				unlink (self::_get_lock());
-			}
+		private static function _make_lock($file) {
+			return $file . '-lock';
 		}
 
-		/**
-		 * Log output
-		 * 
-		 * @param string $msg
-		 */
-		public function log($msg, $args = array()) 
-        {
-    		$args = func_get_args();
-        	array_shift($args);
-            if ($args) {
-                $msg = vsprintf($msg, $args);
-            }
-			return $this->rlog($msg."\n");
-		}
-
-		/**
-		 * Log output verbatim
-		 * 
-		 * @param string $msg
-		 */
-		public function rlog($msg)
+		public function __destruct()
 		{
-			fwrite(self::$fp, $msg);
-
-		}
-
-		/**
-		 * Close tee and set persistance lock  
-		 */
-		public function close()
-		{
-			$this->_close(true);
+			// let frontend close
+			$this->_close(!IS_CLI);
 		}
 
 		/**
 		 * Close tee and unset/set persistance lock
-		 * 
+		 *
 		 * @private
 		 * @param bool $unlink remove tee lock
 		 */
-		private function _close($unlink = false) {
+		private function _close($unlink = false)
+		{
 			if (!$this->owner) return false;
 			if (IS_CLI && $this->persist) {
 				touch(self::_get_lock());
 				chown(self::_get_lock(), 'nobody');
 			}
-			if (is_resource(self::$fp)) {
-				fclose(self::$fp);
-				self::$fp = null;
+			if (is_resource($this->fp)) {
+				fclose($this->fp);
+				$this->fp = null;
 			}
 			if ($unlink && file_exists(self::_get_lock())) {
 				unlink(self::_get_lock());
 			}
 
 		}
+
+		/**
+		 * Get lock filename
+		 *
+		 * @private
+		 * @return string
+		 */
+		private static function _get_lock()
+		{
+			// only trust authenticated users
+			// sync between backend and frontend
+			return sys_get_temp_dir() . '/' . Auth::get_driver()->getID() . '-lock';
+		}
+
+		public function getLock() {
+			return self::_get_lock();
+		}
+
+		/**
+		 * Call a command by using Util_Process::exec()
+		 *
+		 * @see Util_Process::exec()
+		 * @return array
+		 */
+		public function exec($cmd, $args = null, $exits = array(0), $opts = array())
+		{
+			//if (!is_resource(self::$fp)) { return false; }
+			if (!isset($this->proc)) {
+				return error("cannot exec with delegated obj (" . __CLASS__ . "::auto())");
+			}
+			$this->proc = new Util_Process();
+			if (!is_resource($this->fp)) return array('success' => false);
+			$resp = call_user_func_array(array($this->proc, 'run'), func_get_args());
+			return $resp;
+		}
+
+		/**
+		 * Log output
+		 *
+		 * @param string $msg
+		 */
+		public function log($msg, $args = array())
+		{
+			$args = func_get_args();
+			array_shift($args);
+			if ($args) {
+				$msg = vsprintf($msg, $args);
+			}
+			return $this->rlog($msg . "\n");
+		}
+
+		/**
+		 * Log output verbatim
+		 *
+		 * @param string $msg
+		 */
+		public function rlog($msg, $bytes = 0, $pipeid = null)
+		{
+			fwrite($this->fp, $msg);
+		}
+
+		/**
+		 * Close tee and set persistance lock
+		 */
+		public function close()
+		{
+			$this->_close(true);
+		}
 	}
+
 ?>

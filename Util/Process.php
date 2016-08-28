@@ -8,7 +8,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 2275 $ $Date: 2016-06-04 02:17:44 -0400 (Sat, 04 Jun 2016) $
+	 * @version $Rev: 2450 $ $Date: 2016-08-17 15:15:41 -0400 (Wed, 17 Aug 2016) $
 	 */
 	class Util_Process {
 		/**
@@ -61,6 +61,7 @@
 			'tv_usec' => null,
 			'binary'  => 0,
 			'tail'    => false,
+			'timeout' => null,
 			'fd' => array());
 
 		private $descriptors;
@@ -101,8 +102,9 @@
 		}
 
 		public function __destruct() {
-			if (is_resource($this->proc_instance))
+			if (is_resource($this->proc_instance)) {
 				proc_close($this->proc_instance);
+			}
 		}
 
 		/**
@@ -198,16 +200,22 @@
 		}
 
 		private function _run() {
-			$pid = proc_open($this->cmd,
+			$proc = proc_open($this->cmd,
 					$this->descriptors,
 					$this->pipes,
 					null,
 					$this->_env
 			);
-			if (!is_resource($pid)) {
+			if (!is_resource($proc)) {
 				return error("`%s': unable to open process", $this->prog_name);
 			}
-			$this->proc_instance = &$pid;
+
+			$this->proc_instance = &$proc;
+
+			if (!empty($this->callbacks['exec'])) {
+				$this->callback('exec', $this->cmd);
+			}
+
 			return $this;
 		}
 
@@ -381,9 +389,6 @@
 			$T_WRITE = 500;
 			$DEBUG   = is_debug();
 			$streambytes = 0;
-			if (!empty($this->callbacks['exec'])) {
-				$this->callback('exec', $this->cmd);
-			}
 			/**
 			 * @todo drop the "2" functions, replace with asXYZ()
 			 * refactor the loop into smaller, manageable methods
@@ -445,7 +450,7 @@
 			// streamidx: position of the resource within stream_select() array
 			$maps = array();
 
-			ignore_user_abort(true);
+			ignore_user_abort(false);
 			foreach (array('read','write','oob') as $name) {
 				$fdarr = $$name;
 		 		for ($i = 0, $szarr = sizeof($fdarr); $i < $szarr; $i++) {
@@ -494,12 +499,11 @@
 
 			$i = 0;
 			for(; count($read) || count($write) ; $read  = $streams['read'],
-				$write = $streams['write'], $i++) {
+				$write = $streams['write'], $i++)
+			{
 				if (connection_aborted()) {
-					error_log("Killing");
 					return $this->_kill();
 				}
-
 				$changed = stream_select($read, $write, $oob, $tv_sec, $tv_usec);
 				if ($changed === false) {
 					error("stream_select() error!");
@@ -563,7 +567,8 @@
 	    					if (!empty($this->callbacks['read'])) {
 								$this->callback('read',
 									$buffer,
-									$bytes
+									$total,
+									$pipeid
 								);
 	    					}
 	    					continue;
@@ -633,13 +638,21 @@
 		 */
 		public function addCallback($function, $when = 'read') {
 			$args = func_get_args();
+			$namespace = null;
+			if (false !== ($pos = strpos($when, "."))) {
+				$namespace = substr($when, ++$pos);
+				$when = substr($when, 0, --$pos);
+			}
+
 			if (!isset($this->callbacks[$when]))
 				return error($when.": invalid callback context");
 			if (!is_callable($function))
 				return error("callback not callable");
+
 			$this->callbacks[$when][] = array(
 				'function' => $function,
-				'args'     => array_slice($args, 2)
+				'args'     => array_slice($args, 2),
+				'namespace' => $namespace
 			);
 		}
 
@@ -760,7 +773,7 @@
                 $this->_setArgsNamed($args, $pos);
                 $cnt = 1;
             } else {
-                $pos = strpos($cmd, "%");
+                $pos = (int)strpos($cmd, "%");
                 $cnt = 0;
                 while ($pos !== false) {
                     $cnt++;
@@ -918,12 +931,88 @@
 			return $this;
 		}
 
+		/**
+		 * Set process option
+		 *
+		 * Create callback methods using camel case
+		 * _ is stripped, e.g. tv_usec -> setTvUsec
+		 *
+		 * @param string $name option name
+		 * @param mixed $val
+		 * @return $this
+		 */
 		public function setOption($name, $val = null) {
-			if (is_null($val) && isset($this->opts[$name]))
+			if (is_null($val) && isset($this->opts[$name])) {
 				unset ($this->opts[$name]);
-			else
+			} else {
 				$this->opts[$name] = $val;
+			}
+			if ((PHP_VERSION >= 050432 && PHP_VERSION < 050500) || PHP_VERSION >= 050516) {
+				$fn = str_replace("_", "", ucwords($name, "_"));
+			} else {
+				$tmp = str_replace("_", ' ', $name);
+				$fn = str_replace(" ", "", ucwords($tmp));
+			}
+			$fn = 'set' . $fn;
+			if (method_exists($this, $fn)) {
+				$this->$fn($val);
+			}
 			return $this;
+		}
+
+		protected function setTimeout($maxwait = null) {
+			if (!$maxwait) {
+				$this->deleteCallback('exec.timeout');
+				$this->deleteCallback('close.timeout');
+				return true;
+			}
+			// @XXX it may leave children behind much like Evander Holyfield
+			pcntl_signal(SIGALRM, function () {
+				posix_kill(posix_getpid(), SIGKILL);
+			}, true);
+			// @XXX sleep has the potential to break this implementation
+			// but this will guard against accidental daemonization
+			$this->addCallback(function () use ($maxwait) {
+				// n second timeout
+				pcntl_alarm($maxwait);
+			}, 'exec.timeout');
+			$this->addCallback(function () {
+				pcntl_alarm(0);
+				pcntl_signal(SIGALRM,  SIG_DFL);
+			}, 'close.timeout');
+
+			return true;
+		}
+
+		public function setTee($file) {
+
+		}
+
+		/**
+		 * Delete a registered callback
+		 *
+		 * @param string $when callback context (read, write, close)
+		 * @param string $namespace optional namespace
+		 * @return bool|void
+		 */
+		public function deleteCallback($when, $namespace = '') {
+			if (false !== ($pos = strpos($when, "."))) {
+				$namespace = substr($when, $pos);
+				$when = substr($when, 0, --$pos);
+			}
+			if (!isset($this->callbacks[$when])) {
+				return error("unknown callback context `%s'", $when);
+			}
+			if (!$namespace) {
+				$this->callbacks[$when] = array();
+				return true;
+			}
+			foreach ($this->callbacks[$when] as $key => $cb) {
+				if ($cb['namespace'] === $namespace) {
+					unset($this->callbacks['exec'][$key]);
+				}
+			}
+			return true;
 		}
 
 		public function getOption($name) {
@@ -1195,6 +1284,7 @@
 				return null;
 			return $this->pipeline[$id]['ready'];
 		}
+
 		private function processPipeline(&$in, &$out) {
 
 		}
