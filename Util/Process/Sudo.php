@@ -6,7 +6,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 2450 $ $Date: 2016-08-17 15:15:41 -0400 (Wed, 17 Aug 2016) $
+	 * @version $Rev: 2482 $ $Date: 2016-08-31 19:39:29 -0400 (Wed, 31 Aug 2016) $
 	 */
 	class Util_Process_Sudo extends Util_Process_Safe
 	{
@@ -80,17 +80,28 @@
 					$user .= '@' . $cred['domain'];
 				}
 			}
-			$cmd = sprintf('su %s -c "%s"',
+			$cmd = sprintf("su %s -c %s",
 				$user,
-				$umask . "cd ~ && " . $cmd
+				escapeshellarg($umask . "cd ~ && " . $cmd)
 
 			);
 			$args = func_get_args();
-			//array_shift($args);
-
 			$args[0] = $cmd;
 
 			return call_user_func_array('parent::run',$args);
+		}
+
+		protected function _setArgs($args, $depth = 0) {
+			$ret = parent::_setArgs($args, $depth);
+			if (!$depth) {
+				// actual args
+				return $ret;
+			}
+			foreach($ret as $k => $v) {
+				// double up since su -c '<CMD>' adds first round of single quotes
+				$ret[$k] = str_replace("'", "'\\''", $v);
+			}
+			return $ret;
 		}
 	}
 ?>

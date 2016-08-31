@@ -8,7 +8,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 2450 $ $Date: 2016-08-17 15:15:41 -0400 (Wed, 17 Aug 2016) $
+	 * @version $Rev: 2481 $ $Date: 2016-08-31 18:00:34 -0400 (Wed, 31 Aug 2016) $
 	 */
 	class Util_Process {
 		/**
