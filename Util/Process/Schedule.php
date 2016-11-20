@@ -6,7 +6,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 2565 $ $Date: 2016-11-19 22:41:04 -0500 (Sat, 19 Nov 2016) $
+	 * @version $Rev: 2567 $ $Date: 2016-11-19 23:19:37 -0500 (Sat, 19 Nov 2016) $
 	 */
 	class Util_Process_Schedule extends Util_Process
 	{
@@ -62,8 +62,14 @@
 		}
 		
 		private function _parse(DateTime $d) {
-			// atd only accepts UTC for timezone
-			// ensure tz is converted to compatible UTC zone
+			/**
+			 * atd only accepts UTC for timezone
+			 * ensure tz is converted to compatible UTC zone
+			 *
+			 * **NOTE** there is a bug with 3.1.8 < atd <= 3.1.13-22
+			 * in RedHat with parsing UTC timezones:
+			 * https://bugzilla.redhat.com/show_bug.cgi?id=1328832
+			 */
 			return $d->setTimezone(new DateTimeZone('UTC'))
 				->format("H:i \U\T\C m/d/Y");
 		}
