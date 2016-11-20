@@ -8,7 +8,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 2481 $ $Date: 2016-08-31 18:00:34 -0400 (Wed, 31 Aug 2016) $
+	 * @version $Rev: 2488 $ $Date: 2016-09-14 18:14:06 -0400 (Wed, 14 Sep 2016) $
 	 */
 	class Util_Process {
 		/**
@@ -387,7 +387,7 @@
 			$T_LOOP  = 500;
 			$T_READ  = 250;
 			$T_WRITE = 500;
-			$DEBUG   = is_debug();
+			$DEBUG   = function_exists('is_debug') && is_debug();
 			$streambytes = 0;
 			/**
 			 * @todo drop the "2" functions, replace with asXYZ()

@@ -6,7 +6,7 @@
 	 *
 	 * @author  Matt Saladna <matt@apisnetworks.com>
 	 * @license http://opensource.org/licenses/MIT
-	 * @version $Rev: 2412 $ $Date: 2016-07-19 20:18:17 -0400 (Tue, 19 Jul 2016) $
+	 * @version $Rev: 2565 $ $Date: 2016-11-19 22:41:04 -0500 (Sat, 19 Nov 2016) $
 	 */
 	class Util_Process_Schedule extends Util_Process
 	{
@@ -62,7 +62,10 @@
 		}
 		
 		private function _parse(DateTime $d) {
-			return $d->format("H:i m/d/Y");
+			// atd only accepts UTC for timezone
+			// ensure tz is converted to compatible UTC zone
+			return $d->setTimezone(new DateTimeZone('UTC'))
+				->format("H:i \U\T\C m/d/Y");
 		}
 
 		public function setID($id) {
@@ -85,6 +88,9 @@
 			if (false === $spec) {
 				return error("unparseable timespec `%s'", $this->_time);
 			}
+			if (static::AT_CMD == "batch") {
+				$spec = null;
+			}
 			$safecmd = sprintf("echo %s | " . static::AT_CMD . "  %s 2> /dev/null",
 				escapeshellcmd($cmd),
 				$spec
@@ -94,7 +100,6 @@
 			$safe = new Util_Process_Safe();
 			$safe->setEnvironment($this->getEnvironment());
 			return call_user_func_array(array($safe, 'run'), $args);
-
 		}
 
 		/**
